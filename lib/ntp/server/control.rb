@@ -1,7 +1,9 @@
 require 'ntp/server/base'
-require 'ruby-fifo'
+require 'dbus'
+require 'pry'
 
 class NTP::Server::Control
+   NUM = NTP::Server::Base::NUM
    DEFAULT_PORT = 17890
 
    def usage
@@ -9,38 +11,26 @@ class NTP::Server::Control
    end
 
    def status
-      @client_out.puts('status')
-      status = read(@client_in)
-      status || "not running"
+      if connection
+         connection.status
+      else
+         "not running"
+      end
    end
 
    def start port = DEFAULT_PORT
-      fork do
-         Process.setsid
-         NTP::Server::Base.new(port || DEFAULT_PORT).start
+      fork { NTP::Server::Base.run(port || DEFAULT_PORT) }
+
+      if wait_for_connection
+         connection.start
+      else
+         "can't run"
       end
-      read(@client_in, 5)
    end
 
    def stop
-      @client_out.puts('stop')
-
-      s = true
-      begin
-         Timeout::timeout(5) do
-            while s do
-               @client_out.puts('status')
-               s = read(@client_in)
-            end
-         end
-      rescue Timeout::Error
-      end
-
-      if s
-         "failed to stop: status #{s}"
-      else
-         "stopped"
-      end
+      connection.stop
+   rescue DBus::Error
    end
 
    def restart
@@ -48,24 +38,69 @@ class NTP::Server::Control
    end
 
    def time time
-      @client_out.puts("time #{time}")
+      connection.time(time.to_s)
    end
 
    def reset
-      @client_out.puts('reset')
+      connection.reset
    end
 
    private
 
-   def read client_in, timeout = 1
-      begin
-         Timeout::timeout(timeout) { client_in.gets }
-      rescue Timeout::Error
+   def try_get_connection obj
+      if obj
+         obj.introspect
+         obj.default_iface = "org.ruby.ntp_mock.server#{NUM}"
+         p "CONNECTED"
+         @connection = obj
+      else
+         @connection = nil
+         nil
       end
+   rescue DBus::Error
+   end
+
+   def connection
+      @connection || try_get_connection(self.object)
+   end
+
+   def wait_for_connection timeout = 3
+      object = wait_for_object
+      begin
+         begin
+            Timeout::timeout(timeout) do
+               begin ;end until try_get_connection(object)
+            end
+         rescue Timeout::Error
+            p "TO"
+         end
+      end until @connection
+      @connection
+   end
+
+   def object
+      @object || get_object
+   end
+
+   def get_object
+      service = @bus.service("org.ruby.ntp_mock#{NUM}")
+      @object = service.object("/org/ruby/NTPMockInstance#{NUM}")
+   rescue DBus::Error
+      @connection = nil
+      @object = nil
+   end
+
+   def wait_for_object timeout = 3
+      Timeout::timeout(timeout) do
+         begin ;end until get_object
+      end
+      @object
+   rescue Timeout::Error
+      nil
    end
 
    def initialize
-      @client_out = Fifo.new('ntp-mock-server-in', :w, :nowait)
-      @client_in = Fifo.new('ntp-mock-server-out', :r, :nowait)
+      @bus = DBus::SystemBus.instance
+      try_get_connection(get_object)
    end
 end

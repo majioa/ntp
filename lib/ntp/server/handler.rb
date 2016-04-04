@@ -35,13 +35,13 @@ module NTP::Server::Handler
       end
    end
 
-   def update_gap
-      self.handler.reader.sync
-      data = self.handler.reader.read_nonblock(1024)
-      self.handler.gap = data.to_f
-   rescue IO::EAGAINWaitReadable
-   end
-
+#   def update_gap
+#      self.handler.reader.sync
+#      data = self.handler.reader.read_nonblock(1024)
+#      self.handler.gap = data.to_f
+#   rescue IO::EAGAINWaitReadable
+#   end
+#
    def handler
       NTP::Server::Handler
    end
@@ -70,18 +70,18 @@ module NTP::Server::Handler
       @@gap
    end
 
-   def self.update_gap
-      self.reader.sync
-      self.gap = self.reader.read_nonblock(1024).to_f
-   rescue IO::EAGAINWaitReadable
-      retry
-   end
-
-   private
-
-   def self.included klass
-      Signal.trap("USR1") do
-         update_gap
-      end
-   end
+#   def self.update_gap
+#      self.reader.sync
+#      self.gap = self.reader.read_nonblock(1024).to_f
+#   rescue IO::EAGAINWaitReadable
+#      retry
+#   end
+#
+#   private
+#
+#   def self.included klass
+#      Signal.trap("USR1") do
+#         update_gap
+#      end
+#   end
 end
